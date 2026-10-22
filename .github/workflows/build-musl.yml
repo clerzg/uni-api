@@ -29,27 +29,28 @@ jobs:
             curl jq \
             ca-certificates
 
-      # 版本号跟随上游 yym68686/uni-api 的 latest release tag（形如 v1.7.276）
-      - name: Resolve upstream latest tag
-        id: upstream
-        run: |
-          TAG=$(curl -sS -m 20 -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/yym68686/uni-api/releases/latest" | jq -r '.tag_name // empty')
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "::error::无法获取上游 latest 版本号"
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "上游 latest: $TAG"
-
-      # 直接编译【上游源码】，不使用本仓库的代码。
-      # ref 锁定到上游 latest 的 tag，保证「版本号 = 代码」严格对应。
+      # 直接编译【上游源码】（main 分支，与官方 Docker 镜像同源）。
       - name: Checkout upstream source
         uses: actions/checkout@v4
         with:
           repository: yym68686/uni-api
-          ref: ${{ steps.upstream.outputs.tag }}
+          ref: main
           path: upstream
+
+      # 版本号取上游 Cargo.toml 的 version（形如 0.1.112）。
+      # 说明：上游 latest release 是 Python 版的 v1.7.x，与 Rust 代码无关；
+      # Rust 版从未发过 release，官方 Docker 镜像同样使用 Cargo.toml 版本号。
+      - name: Resolve version from upstream Cargo.toml
+        id: upstream
+        run: |
+          VERSION=$(grep -m1 '^version = ' upstream/Cargo.toml | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then
+            echo "::error::无法从 upstream/Cargo.toml 读取版本号"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "上游 Rust 版本: v$VERSION"
 
       - name: Show toolchain and upstream commit
         id: upcommit
@@ -122,9 +123,9 @@ jobs:
           body: |
             Alpine / musl static build of the **uni-api core** (`uni-api-front`).
 
-            - Upstream version: `${{ steps.upstream.outputs.tag }}`
+            - Version: `${{ steps.upstream.outputs.tag }}` (from upstream `Cargo.toml`)
             - Upstream commit: `${{ steps.upcommit.outputs.sha }}`
-            - Source: `yym68686/uni-api` @ `${{ steps.upstream.outputs.tag }}` (built directly from upstream)
+            - Source: `yym68686/uni-api` @ `main` (built directly from upstream, same source as the official Docker image)
             - Target: `x86_64-unknown-linux-musl`
             - Runs on any x86_64 Linux (Alpine, Debian, Ubuntu) — statically linked
             - Config: place `api.yaml` next to the binary, then run it
