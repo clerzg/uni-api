@@ -96,12 +96,12 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "上游 latest: $TAG"
 
-      - name: Package (rename + sha256)
+      - name: Package (fixed filename + sha256)
         id: pack
         run: |
-          TAG="${{ steps.upstream.outputs.tag }}"
-          VER="${TAG#v}"
-          NAME="uni-api-linux-x86_64-musl-${VER}"
+          # 文件名固定不带版本号 —— 客户端可用永久地址：
+          #   https://github.com/<owner>/<repo>/releases/latest/download/uni-api-linux-x86_64-musl
+          NAME="uni-api-linux-x86_64-musl"
           cp target/release/uni-api-front "$NAME"
           chmod +x "$NAME"
           sha256sum "$NAME" > "${NAME}.sha256"
@@ -121,6 +121,11 @@ jobs:
             - Built from commit: `${{ github.sha }}`
             - Runs on any x86_64 Linux (Alpine, Debian, Ubuntu) — statically linked
             - Config: place `api.yaml` next to the binary, then run it
+
+            **固定下载地址（永远指向最新版，客户端不用改）：**
+            ```
+            https://github.com/${{ github.repository }}/releases/latest/download/${{ steps.pack.outputs.name }}
+            ```
 
             Verify: `sha256sum -c ${{ steps.pack.outputs.name }}.sha256`
           files: |
