@@ -1,0 +1,94 @@
+name: Build uni-api static musl binary (amd64)
+
+# 手动触发，或改动源码时自动跑。不会碰上游的 Docker 发布流程。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-musl.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-musl-amd64:
+    name: x86_64-unknown-linux-musl (static)
+    runs-on: ubuntu-latest
+
+    # Alpine 容器 = 原生 musl 环境，避免交叉编译 C 依赖（ring/zstd/rusqlite）的坑
+    container:
+      image: rust:1.84-alpine3.21
+
+    steps:
+      - name: Install build deps
+        run: |
+          apk add --no-cache \
+            musl-dev gcc make perl \
+            binutils file \
+            git nodejs \
+            ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+          echo "host target: $(rustc -vV | grep host)"
+
+      - name: Build (fully static)
+        env:
+          # +crt-static 让 musl libc 静态链接 → 产出不依赖任何 .so 的单文件
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: |
+          cargo build --release --locked
+          strip target/release/uni-api-front || true
+          echo "=== 产物 ==="
+          ls -lh target/release/uni-api-front
+
+      - name: Verify it is static
+        run: |
+          file target/release/uni-api-front || true
+          echo "--- ldd (静态链接应报 not a dynamic executable / not found) ---"
+          ldd target/release/uni-api-front 2>&1 || true
+
+      - name: Smoke test (non-blocking)
+        continue-on-error: true
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          cat > api.yaml <<'EOF'
+          providers:
+            - provider: custom
+              base_url: https://example.com/v1
+              api: dummy
+              model:
+                - dummy-model
+          api_keys:
+            - api: test-key
+          EOF
+          ./target/release/uni-api-front &
+          PID=$!
+          sleep 6
+          curl -sS -m 5 -o /dev/null -w "health_http=%{http_code}\n" http://127.0.0.1:8000/ || true
+          kill $PID 2>/dev/null || true
+          rm -f api.yaml
+
+      # 可选：磁盘非常紧张时取消注释，可再压 30~50%
+      # - name: UPX compress
+      #   run: |
+      #     apk add --no-cache upx
+      #     upx --best --lzma target/release/uni-api-front || true
+      #     ls -lh target/release/uni-api-front
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uni-api-front-linux-amd64-musl
+          path: target/release/uni-api-front
+          if-no-files-found: error
+          retention-days: 30
