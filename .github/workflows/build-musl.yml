@@ -1,4 +1,4 @@
-name: Build uni-api static musl binary (amd64)
+name: Build uni-api musl binary (amd64)
 
 # 手动触发，或改动源码时自动跑。不会碰上游的 Docker 发布流程。
 on:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build-musl-amd64:
-    name: x86_64-unknown-linux-musl (static)
+    name: x86_64-unknown-linux-musl (Alpine native)
     runs-on: ubuntu-latest
 
     # Alpine 容器 = 原生 musl 环境，避免交叉编译 C 依赖（ring/zstd/rusqlite）的坑
@@ -41,20 +41,21 @@ jobs:
           cargo --version
           echo "host target: $(rustc -vV | grep host)"
 
-      - name: Build (fully static)
-        env:
-          # +crt-static 让 musl libc 静态链接 → 产出不依赖任何 .so 的单文件
-          RUSTFLAGS: "-C target-feature=+crt-static"
+      # 注意：不要在 Alpine 上加 RUSTFLAGS=-C target-feature=+crt-static。
+      # 那会让 proc-macro（编译期 .so）也尝试静态链接而报错：
+      #   cannot produce proc-macro for `async-trait` as the target does not support these crate types
+      # Alpine 的 host target 本来就是 x86_64-unknown-linux-musl，直接编译即产出 musl 二进制。
+      - name: Build
         run: |
           cargo build --release --locked
           strip target/release/uni-api-front || true
           echo "=== 产物 ==="
           ls -lh target/release/uni-api-front
 
-      - name: Verify it is static
+      - name: Verify musl linkage
         run: |
           file target/release/uni-api-front || true
-          echo "--- ldd (静态链接应报 not a dynamic executable / not found) ---"
+          echo "--- 依赖库（应指向 libc.musl-x86_64.so.1）---"
           ldd target/release/uni-api-front 2>&1 || true
 
       - name: Smoke test (non-blocking)
