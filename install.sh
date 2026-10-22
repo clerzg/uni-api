@@ -91,7 +91,9 @@ api_keys:
   - api: ${CLIENT_KEY}
 YAML
   chmod 600 "$CONF_FILE"
-  warn "请编辑 ${CONF_FILE} 把 providers[].api 换成真实上游密钥"
+  warn "请编辑 ${CONF_FILE}，把 providers[].base_url 和 .api 换成真实上游"
+  warn "注意：模板未写 model 列表，启动时会访问上游 /v1/models 做自动发现。"
+  warn "      上游不可达将导致服务启动失败，填好真实地址后重启即可。"
   warn "已自动生成客户端密钥（安装结束后会打印）"
 else
   log "配置已存在，保持不变: ${CONF_FILE}"
