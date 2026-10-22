@@ -1,19 +1,12 @@
 name: Build uni-api musl binary (amd64)
 
-# 手动触发，或改动源码时自动跑。编译完成后发布到本仓库的 Release。
+# 只保留手动触发，避免意外运行。
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/build-musl.yml'
 
 # 发布 Release 需要写权限。
-# 注意：fork 仓库首次使用前，需在 Settings → Actions → General →
-# Workflow permissions 里选择 "Read and write permissions"，否则发布会被拒绝。
+# fork 仓库首次使用前，需在 Settings → Actions → General →
+# Workflow permissions 里选择 "Read and write permissions"。
 permissions:
   contents: write
 
@@ -36,20 +29,45 @@ jobs:
             curl jq \
             ca-certificates
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      # 版本号跟随上游 yym68686/uni-api 的 latest release tag（形如 v1.7.276）
+      - name: Resolve upstream latest tag
+        id: upstream
+        run: |
+          TAG=$(curl -sS -m 20 -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/yym68686/uni-api/releases/latest" | jq -r '.tag_name // empty')
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::无法获取上游 latest 版本号"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "上游 latest: $TAG"
 
-      - name: Show toolchain
+      # 直接编译【上游源码】，不使用本仓库的代码。
+      # ref 锁定到上游 latest 的 tag，保证「版本号 = 代码」严格对应。
+      - name: Checkout upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: yym68686/uni-api
+          ref: ${{ steps.upstream.outputs.tag }}
+          path: upstream
+
+      - name: Show toolchain and upstream commit
+        id: upcommit
         run: |
           rustc --version
           cargo --version
           echo "host target: $(rustc -vV | grep host)"
+          SHA=$(cd upstream && git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "upstream commit: $SHA"
+          cd upstream && git log -1 --format='%s'
 
       # 注意：不要在 Alpine 上加 RUSTFLAGS=-C target-feature=+crt-static。
       # 那会让 proc-macro（编译期 .so）也尝试静态链接而报错：
       #   cannot produce proc-macro for `async-trait` as the target does not support these crate types
       # Alpine 的 host target 本来就是 x86_64-unknown-linux-musl，直接编译即产出 musl 二进制。
       - name: Build
+        working-directory: upstream
         run: |
           cargo build --release --locked
           strip target/release/uni-api-front || true
@@ -57,15 +75,16 @@ jobs:
           ls -lh target/release/uni-api-front
 
       - name: Verify musl linkage
+        working-directory: upstream
         run: |
           file target/release/uni-api-front || true
-          echo "--- 依赖库（应指向 libc.musl-x86_64.so.1，或显示 statically linked）---"
+          echo "--- 依赖库（应显示 statically linked）---"
           ldd target/release/uni-api-front 2>&1 || true
 
       - name: Smoke test (non-blocking)
         continue-on-error: true
+        working-directory: upstream
         run: |
-          cd "$GITHUB_WORKSPACE"
           cat > api.yaml <<'EOF'
           providers:
             - provider: custom
@@ -83,26 +102,13 @@ jobs:
           kill $PID 2>/dev/null || true
           rm -f api.yaml
 
-      # 版本号跟随上游 yym68686/uni-api 的 latest release tag（形如 v1.7.276）
-      - name: Resolve upstream latest tag
-        id: upstream
-        run: |
-          TAG=$(curl -sS -m 20 -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/yym68686/uni-api/releases/latest" | jq -r '.tag_name // empty')
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "::error::无法获取上游 latest 版本号"
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "上游 latest: $TAG"
-
       - name: Package (fixed filename + sha256)
         id: pack
         run: |
           # 文件名固定不带版本号 —— 客户端可用永久地址：
           #   https://github.com/<owner>/<repo>/releases/latest/download/uni-api-linux-x86_64-musl
           NAME="uni-api-linux-x86_64-musl"
-          cp target/release/uni-api-front "$NAME"
+          cp upstream/target/release/uni-api-front "$NAME"
           chmod +x "$NAME"
           sha256sum "$NAME" > "${NAME}.sha256"
           ls -lh "$NAME" "${NAME}.sha256"
@@ -117,8 +123,9 @@ jobs:
             Alpine / musl static build of the **uni-api core** (`uni-api-front`).
 
             - Upstream version: `${{ steps.upstream.outputs.tag }}`
+            - Upstream commit: `${{ steps.upcommit.outputs.sha }}`
+            - Source: `yym68686/uni-api` @ `${{ steps.upstream.outputs.tag }}` (built directly from upstream)
             - Target: `x86_64-unknown-linux-musl`
-            - Built from commit: `${{ github.sha }}`
             - Runs on any x86_64 Linux (Alpine, Debian, Ubuntu) — statically linked
             - Config: place `api.yaml` next to the binary, then run it
 
@@ -141,6 +148,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: uni-api-front-linux-amd64-musl
-          path: target/release/uni-api-front
+          path: upstream/target/release/uni-api-front
           if-no-files-found: error
           retention-days: 30
