@@ -3,6 +3,15 @@ name: Build uni-api musl binary (amd64)
 # 只保留手动触发，避免意外运行。
 on:
   workflow_dispatch:
+    inputs:
+      ipv6:
+        description: '监听 IPv6 双栈（同时接受 IPv4 + IPv6）。默认 false = 上游原生行为，仅 IPv4'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 # 发布 Release 需要写权限。
 # fork 仓库首次使用前，需在 Settings → Actions → General →
@@ -62,6 +71,19 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "upstream commit: $SHA"
           cd upstream && git log -1 --format='%s'
+
+      - name: Apply IPv6 dual-stack patch (optional)
+        if: ${{ github.event.inputs.ipv6 == 'true' }}
+        working-directory: upstream
+        run: |
+          # 上游 src/app.rs 硬编码 Ipv4Addr::UNSPECIFIED (0.0.0.0)，仅监听 IPv4。
+          # 改为 Ipv6Addr::UNSPECIFIED ([::]) 后在 Linux 上为双栈：同时接受 IPv4 与 IPv6。
+          # 已实测：socat 监听 [::] 时 IPv4/IPv6 均可连通。
+          sed -i 's/IpAddr::V4(Ipv4Addr::UNSPECIFIED)/IpAddr::V6(Ipv6Addr::UNSPECIFIED)/' src/app.rs
+          sed -i 's/use std::net::{IpAddr, Ipv4Addr, SocketAddr};/use std::net::{IpAddr, Ipv6Addr, SocketAddr};/' src/app.rs
+          echo "--- 修改结果 ---"
+          grep -n 'IpAddr::V\|use std::net::{IpAddr' src/app.rs
+          grep -q 'Ipv6Addr::UNSPECIFIED' src/app.rs || { echo "::error::IPv6 补丁未生效，上游代码可能已变更"; exit 1; }
 
       # 注意：不要在 Alpine 上加 RUSTFLAGS=-C target-feature=+crt-static。
       # 那会让 proc-macro（编译期 .so）也尝试静态链接而报错：
@@ -126,6 +148,7 @@ jobs:
             - Version: `${{ steps.upstream.outputs.tag }}` (from upstream `Cargo.toml`)
             - Upstream commit: `${{ steps.upcommit.outputs.sha }}`
             - Source: `yym68686/uni-api` @ `main` (built directly from upstream, same source as the official Docker image)
+            - Listen: ${{ github.event.inputs.ipv6 == 'true' && '`[::]` IPv6 dual-stack (accepts IPv4 + IPv6)' || '`0.0.0.0` IPv4 only (upstream default)' }}
             - Target: `x86_64-unknown-linux-musl`
             - Runs on any x86_64 Linux (Alpine, Debian, Ubuntu) — statically linked
             - Config: place `api.yaml` next to the binary, then run it
