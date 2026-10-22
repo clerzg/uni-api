@@ -131,13 +131,6 @@ else
   warn "手动运行: cd ${CONF_DIR} && ${INSTALL_BIN}"
 fi
 
-sleep 2
-if command -v curl >/dev/null 2>&1; then
-  code="$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:${PORT}/" 2>/dev/null || echo 000)"
-  log "健康检查 http://127.0.0.1:${PORT}/ -> HTTP ${code}"
-  [ "$code" = "000" ] && warn "端口无响应，请检查配置和日志"
-fi
-
 cat <<EOF
 
 $(printf '\033[1;32m✓ 安装完成\033[0m')
