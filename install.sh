@@ -53,10 +53,28 @@ mkdir -p "$(dirname "$INSTALL_BIN")"
 cp "${TMP}/${ASSET}" "${INSTALL_BIN}"
 chmod 755 "${INSTALL_BIN}"
 
+# 生成随机客户端密钥（sk- + 32 位十六进制）。
+# 优先用 OpenSSL；无 OpenSSL 时退化为 /dev/urandom + od。
+gen_client_key() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 16
+  elif [ -r /dev/urandom ]; then
+    od -vN 16 -An -tx1 /dev/urandom 2>/dev/null | tr -d ' \n'
+  else
+    # 最后兜底：时间戳 + 进程号 + 随机数（够用但不算强随机）
+    echo "$(date +%s)$$$RANDOM" | md5sum 2>/dev/null | cut -c1-32 \
+      || echo "$(date +%s)$$$RANDOM"
+  fi
+}
+CLIENT_KEY="sk-$(gen_client_key)"
+if [ -z "$CLIENT_KEY" ] || [ "$CLIENT_KEY" = "sk-" ]; then
+  die "无法生成客户端密钥"
+fi
+
 mkdir -p "$CONF_DIR"
 if [ ! -f "$CONF_FILE" ]; then
   log "生成配置模板 -> ${CONF_FILE}"
-  cat > "$CONF_FILE" <<'YAML'
+  cat > "$CONF_FILE" <<YAML
 # uni-api 配置示例
 # providers: 上游服务（可写多个，自动负载均衡）
 # api_keys:  本服务对外发放的密钥，客户端用它调用
@@ -70,12 +88,17 @@ providers:
 #    不提供model从上游自动发现
 
 api_keys:
-  - api: sk-REPLACE-WITH-CLIENT-KEY
+  - api: ${CLIENT_KEY}
 YAML
   chmod 600 "$CONF_FILE"
-  warn "请编辑 ${CONF_FILE} 填入真实密钥后再使用"
+  warn "请编辑 ${CONF_FILE} 把 providers[].api 换成真实上游密钥"
+  warn "已自动生成客户端密钥（安装结束后会打印）"
 else
   log "配置已存在，保持不变: ${CONF_FILE}"
+  # 从已有配置读出客户端密钥，便于结束时展示
+  EXISTING=$(grep -m1 -A0 '^\s*-\s*api:' "$CONF_FILE" 2>/dev/null \
+    | sed -n 's/.*api: *//p' | head -1)
+  [ -n "$EXISTING" ] && CLIENT_KEY="$EXISTING"
 fi
 
 # ---------------- 开机自启 ----------------
@@ -135,13 +158,14 @@ cat <<EOF
 
 $(printf '\033[1;32m✓ 安装完成\033[0m')
 
-  二进制   ${INSTALL_BIN}
-  配置     ${CONF_FILE}
-  端口     ${PORT}
-  日志     /var/log/uni-api.log (OpenRC) 或 journalctl -u uni-api (systemd)
+  二进制     ${INSTALL_BIN}
+  配置       ${CONF_FILE}
+  端口       ${PORT}
+  客户端密钥 ${CLIENT_KEY}
+  日志       /var/log/uni-api.log (OpenRC) 或 journalctl -u uni-api (systemd)
 
   下一步：
-    1. 编辑 ${CONF_FILE} 填入真实密钥
+    1. 编辑 ${CONF_FILE}，把 providers[].api 换成真实上游密钥
     2. 重启服务使配置生效
-    3. 客户端调用 http://<本机IP>:${PORT}/v1
+    3. 客户端调用 http://<本机IP>:${PORT}/v1，API Key 用上面的客户端密钥
 EOF
