@@ -17,7 +17,7 @@
 ## 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/clerzg/uni-api/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/clerzg/uni-api/main/install.sh | sh
 ```
 
 脚本会自动完成：
@@ -142,7 +142,7 @@ Base URL 填 `http://<主机>:8000/v1`，API Key 填 `api_keys` 里那个。
 
 ```bash
 # 重新跑一遍安装脚本即可（配置会保留）
-curl -fsSL https://raw.githubusercontent.com/clerzg/uni-api/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/clerzg/uni-api/main/install.sh | sh
 ```
 
 或手动替换二进制后重启服务。下载地址固定，不需要改任何客户端配置。

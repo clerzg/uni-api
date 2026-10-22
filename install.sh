@@ -1,7 +1,7 @@
 #!/bin/sh
 # uni-api 安装脚本
 # 支持: Alpine (OpenRC) / Debian·Ubuntu·CentOS (systemd)
-# 用法: sudo sh install.sh
+# 用法: sh install.sh（需要 root 权限）
 set -eu
 
 REPO="clerzg/uni-api"
@@ -18,7 +18,7 @@ log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
 die()  { printf '\033[1;31mxx\033[0m  %s\n' "$*" >&2; exit 1; }
 
-[ "$(id -u)" -eq 0 ] || die "需要 root 权限，请用: sudo sh install.sh"
+[ "$(id -u)" -eq 0 ] || die "需要 root 权限，请以 root 运行: sh install.sh"
 
 case "$(uname -m)" in
   x86_64|amd64) ;;
