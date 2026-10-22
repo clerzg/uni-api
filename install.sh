@@ -62,11 +62,11 @@ if [ ! -f "$CONF_FILE" ]; then
 # api_keys:  本服务对外发放的密钥，客户端用它调用
 
 providers:
-  - provider: custom
-    base_url: https://api.doulor.cn/v1
+  - provider: openai
+    base_url: https://api.xx.cn/v1
     api: sk-REPLACE-WITH-YOUR-UPSTREAM-KEY
 #    model:
-#      - workbuddy-deepseek-v4.1-flash
+#      - deepseek-v4.1-flash
 #    不提供model从上游自动发现
 
 api_keys:
