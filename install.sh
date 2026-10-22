@@ -65,9 +65,9 @@ providers:
   - provider: custom
     base_url: https://api.doulor.cn/v1
     api: sk-REPLACE-WITH-YOUR-UPSTREAM-KEY
-    model:
-      - workbuddy-auto
-      - workbuddy-deepseek-v4.1-flash
+#    model:
+#      - workbuddy-deepseek-v4.1-flash
+#    不提供model从上游自动发现
 
 api_keys:
   - api: sk-REPLACE-WITH-CLIENT-KEY
